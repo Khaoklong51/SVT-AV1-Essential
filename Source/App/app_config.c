@@ -34,6 +34,10 @@
 #include "third_party/safestringlib/safe_str_lib.h"
 #endif
 
+#if defined(_WIN32)
+#define strcasecmp _stricmp
+#endif
+
 /**********************************
  * Defines
  **********************************/
@@ -208,6 +212,14 @@
 #define ZONES_TOKEN "--zones"
 #define SPEED_TOKEN "--speed"
 #define QUALITY_TOKEN "--quality"
+#define ADAPTIVE_FILM_GRAIN_TOKEN "--adaptive-film-grain"
+#define AC_BIAS_TOKEN "--ac-bias"
+#define NOISE_NORM_STRENGTH_TOKEN "--noise-norm-strength"
+#define SHARP_TX_TOKEN "--sharp-tx"
+#define TX_BIAS_TOKEN "--tx-bias"
+#define COMPLEX_HVS_TOKEN "--complex-hvs"
+#define NOISE_ADAPTIVE_FILTERING_TOKEN "--noise-adaptive-filtering"
+#define ALT_CDEF_TOKEN "--enable-alt-cdef"
 static EbErrorType validate_error(EbErrorType err, const char *token, const char *value) {
     switch (err) {
     case EB_ErrorNone: return EB_ErrorNone;
@@ -341,6 +353,25 @@ static EbErrorType set_cfg_input_file(EbConfig *cfg, const char *token, const ch
         cfg->input_file = NULL;
         return validate_error(EB_ErrorBadParameter, token, "");
     }
+
+    cfg->input_file_path = strdup(value);
+
+    const char *ext = strrchr(value, '.');
+    if (ext && strcasecmp(ext, ".yuv") && strcasecmp(ext, ".y4m") &&
+        strcmp(value, "stdin") && strcmp(value, "-")) {
+#if HAVE_FFMS2
+        cfg->use_ffms2 = true;
+        // Don't open file handle for FFMS2 inputs
+        cfg->input_file = NULL;
+        cfg->input_file_is_fifo = false;
+        cfg->y4m_input = false;
+        return EB_ErrorNone;
+    }
+#else
+        fputs("Error: This build does not have FFMS2 support\n", stderr);
+        return EB_ErrorBadParameter;
+    }
+#endif
 
     if (!strcmp(value, "stdin") || !strcmp(value, "-")) {
         cfg->input_file         = stdin;
@@ -741,6 +772,8 @@ ConfigDescription config_entry_rc[] = {
     // QP scale compress strength
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN,
      "QP scale compress strength, default is 1 [0-8]"},
+    //AC-Bias
+    {AC_BIAS_TOKEN, "Strength of AC bias in rate distortion, default is 0.0 [0.0-8.0]"},
     // Zones
     {ZONES_TOKEN,
      "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is none",},
@@ -845,6 +878,21 @@ ConfigDescription config_entry_variance_boost[] = {
     // Variance boost
     {VARIANCE_BOOST_STRENGTH_TOKEN, "Variance boost strength, default is 1 [1-4]"},
     {VARIANCE_OCTILE_TOKEN, "Octile for variance boost, default is 4 [1-8]"},
+    // Sharp-tx
+    {SHARP_TX_TOKEN, "Sharp transform optimization, default is 0 [0-1]"},
+    // TX bias
+    {TX_BIAS_TOKEN,
+     "Transform size/type bias type, default is 0 [0-3]; 1 = full, 2, transform size only, 3 = interpolation only"},
+    //Complex HVS
+    {COMPLEX_HVS_TOKEN, "Enable highest complexity HVS model, default is 0 [0-1]"},
+    // Noise adaptive filtering
+    {NOISE_ADAPTIVE_FILTERING_TOKEN,
+     "Controls noise detection which disables CDEF/restoration when noise level is high enough [0: off, 1: on (for both CDEF and restoration), "
+     "2: default tune behavior, 3: on (CDEF only), 4: on (restoration only)]"},
+    // Alt CDEF
+    {ALT_CDEF_TOKEN,
+     "Enable alternative CDEF bias (experimental), which comes with new SAD & SATD based distortion calculation and various other improvements."
+     "Default is 0 [0-1]."},
     // Termination
     {NULL, NULL}};
 
@@ -1030,6 +1078,12 @@ ConfigDescription fconfig_entry_rc[] = {
     {SHARPNESS_TOKEN, "Bias towards decreased/increased sharpness, default is 1 [-7 to 7]"},
     // QP scale compress strength
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN, "QP scale compress strength, default is 1 [0-8]"},
+    // Adaptive film grain
+    {ADAPTIVE_FILM_GRAIN_TOKEN, "Adapts film grain blocksize based on video resolution, default is 1 [0-1]"},
+    //AC-Bias
+    {AC_BIAS_TOKEN, "Strength of AC bias in rate distortion, default is 0.0 [0.0-8.0]"},
+    // Noise normalization strength
+    {NOISE_NORM_STRENGTH_TOKEN, "Noise normalization strength, default is 0 [0-4]"},
     // Zones
     {ZONES_TOKEN,
      "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is none",},
@@ -1186,6 +1240,21 @@ ConfigDescription fconfig_entry_variance_boost[] = {
     {VARIANCE_BOOST_STRENGTH_TOKEN, "Variance boost strength, default is 1 [1-4]"},
     {VARIANCE_OCTILE_TOKEN, "Octile for variance boost, default is 4 [1-8]"},
     {VARIANCE_BOOST_CURVE_TOKEN, "Curve for variance boost, default is 0 [0-2]"},
+    // Sharp-tx
+    {SHARP_TX_TOKEN, "Sharp transform optimization, default is 0 [0-1]"},
+    // TX bias
+    {TX_BIAS_TOKEN,
+     "Transform size/type bias type, default is 0 [0-3]; 1 = full, 2, transform size only, 3 = interpolation only"},
+    //Complex HVS
+    {COMPLEX_HVS_TOKEN, "Enable highest complexity HVS model, default is 0 [0-1]"},
+    // Noise adaptive filtering
+    {NOISE_ADAPTIVE_FILTERING_TOKEN,
+     "Controls noise detection which disables CDEF/restoration when noise level is high enough [0: off, 1: on (for both CDEF and restoration), "
+     "2: default tune behavior, 3: on (CDEF only), 4: on (restoration only)]"},
+    // Alt CDEF
+    {ALT_CDEF_TOKEN,
+     "Enable alternative CDEF bias (experimental), which comes with new SAD & SATD based distortion calculation and various other improvements."
+     "Default is 0 [0-1]."},
     // Termination
     {NULL, NULL}};
 
@@ -1390,6 +1459,23 @@ ConfigEntry config_entry[] = {
     {ZONES_TOKEN, "Zones", set_cfg_quality_zones},
     {SPEED_TOKEN, "Speed", set_cfg_generic_token},
     {QUALITY_TOKEN, "Quality", set_cfg_generic_token},
+    // Adaptive film grain
+    {ADAPTIVE_FILM_GRAIN_TOKEN, "AdaptiveFilmGrain", set_cfg_generic_token},
+    // AC Bias strength
+    {AC_BIAS_TOKEN, "AcBias", set_cfg_generic_token},
+    // Noise normalization strength
+    {NOISE_NORM_STRENGTH_TOKEN, "NoiseNormStrength", set_cfg_generic_token},
+    // Sharp TX
+    {SHARP_TX_TOKEN, "SharpTX", set_cfg_generic_token},
+    // TX bias
+    {TX_BIAS_TOKEN, "TxBias", set_cfg_generic_token},
+    // Complex HVS
+    {COMPLEX_HVS_TOKEN, "ComplexHVS", set_cfg_generic_token},
+    // Noise adaptive filtering
+    {NOISE_ADAPTIVE_FILTERING_TOKEN, "NoiseAdaptiveFiltering", set_cfg_generic_token},
+    // Alt CDEF
+    {ALT_CDEF_TOKEN, "AltCDEF", set_cfg_generic_token},
+
     // Termination
     {NULL, NULL, NULL}};
 
@@ -1418,6 +1504,11 @@ void svt_config_dtor(EbConfig *app_cfg) {
     if (!app_cfg)
         return;
     // Close any files that are open
+    if (app_cfg->input_file_path) {
+        free(app_cfg->input_file_path);
+        app_cfg->input_file_path = NULL;
+    }
+
     if (app_cfg->input_file) {
         if (!app_cfg->input_file_is_fifo)
             fclose(app_cfg->input_file);
@@ -1744,7 +1835,7 @@ static EbErrorType app_verify_config(EbConfig *app_cfg, uint32_t channel_number)
     EbErrorType return_error = EB_ErrorNone;
 
     // Check Input File
-    if (app_cfg->input_file == (FILE *)NULL) {
+    if (app_cfg->input_file == (FILE *)NULL && !app_cfg->use_ffms2) {
         fprintf(app_cfg->error_log_file, "Error instance %u: Invalid Input File\n", channel_number + 1);
         return_error = EB_ErrorBadParameter;
     }
@@ -2695,7 +2786,7 @@ EbErrorType read_command_line(int32_t argc, char *const argv[], EncChannel *chan
 
                 // For pipe input it is fine if we have -1 here (we will update on end of stream)
                 if (app_cfg->frames_to_be_encoded == -1 && app_cfg->input_file != stdin &&
-                    !app_cfg->input_file_is_fifo) {
+                    !app_cfg->input_file_is_fifo && !app_cfg->use_ffms2) {
                     fprintf(app_cfg->error_log_file,
                             "Error instance %u: Input yuv does not contain enough frames \n",
                             index + 1);

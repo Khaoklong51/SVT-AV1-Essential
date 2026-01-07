@@ -1195,6 +1195,13 @@ typedef struct PictureControlSetInitData {
     QualityZone* zones;
     uint16_t     num_zones;
     bool    low_memory;
+    bool    adaptive_film_grain;
+    double  ac_bias;
+    uint8_t noise_norm_strength;
+    uint8_t sharp_tx;
+    uint8_t tx_bias;
+    uint8_t complex_hvs;
+    uint8_t alt_cdef;
 } PictureControlSetInitData;
 
 /**************************************

@@ -1531,6 +1531,13 @@ EB_API EbErrorType svt_av1_enc_init(EbComponentType *svt_enc_component)
         input_data.zones = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.parsed_zones;
         input_data.num_zones = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.num_zones;
         input_data.low_memory = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.low_memory;
+        input_data.adaptive_film_grain = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.adaptive_film_grain;
+        input_data.ac_bias = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.ac_bias;
+        input_data.noise_norm_strength = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.noise_norm_strength;
+        input_data.sharp_tx = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.sharp_tx;
+        input_data.tx_bias = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.tx_bias;
+        input_data.complex_hvs = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.complex_hvs;
+        //input_data.noise_adaptive_filtering = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config.noise_adaptive_filtering;
         input_data.static_config = enc_handle_ptr->scs_instance_array[instance_index]->scs->static_config;
         EB_NEW(
             enc_handle_ptr->picture_parent_control_set_pool_ptr_array[instance_index],
@@ -3267,6 +3274,31 @@ static void derive_vq_params(SequenceControlSet* scs) {
         vq_ctrl->sharpness_ctrls.restoration      = 0;
         vq_ctrl->sharpness_ctrls.rdoq             = 0;
     }
+
+    switch (scs->static_config.noise_adaptive_filtering) {
+        case 0:
+            vq_ctrl->sharpness_ctrls.cdef = 0;
+            vq_ctrl->sharpness_ctrls.restoration = 0;
+            break;
+        case 1:
+            vq_ctrl->sharpness_ctrls.cdef = 1;
+            vq_ctrl->sharpness_ctrls.restoration = 1;
+            break;
+        case 2:
+            // No override; honor tune defaults
+            break;
+        case 3:
+            vq_ctrl->sharpness_ctrls.cdef = 1;
+            vq_ctrl->sharpness_ctrls.restoration = 0;
+            break;
+        case 4:
+            vq_ctrl->sharpness_ctrls.cdef = 0;
+            vq_ctrl->sharpness_ctrls.restoration = 1;
+            break;
+        default:
+            break;
+    }
+
     // Do not use scene_transition if LD or 1st pass or middle pass
     if (scs->static_config.pred_structure != RANDOM_ACCESS || scs->static_config.pass == ENC_FIRST_PASS)
         vq_ctrl->sharpness_ctrls.scene_transition = 0;
@@ -4021,6 +4053,14 @@ static void set_param_based_on_input(SequenceControlSet *scs)
     if (scs->static_config.variance_boost_strength >= 4) {
         SVT_WARN("Aggressive Variance Boost strength used. This is a curve that's only useful under specific situations. Use with caution!\n");
     }
+    if (scs->static_config.cdef_level != 0 && scs->static_config.alt_cdef) {
+        if (!(scs->static_config.cdef_level == DEFAULT || scs->static_config.cdef_level == 1) ||
+            scs->static_config.pred_structure == SVT_AV1_PRED_LOW_DELAY_B ||
+            scs->static_config.enc_mode > ENC_M4)
+            SVT_WARN("CDEF level is set to 1, or full CDEF decision, when alt-cdef is enabled\n");
+        // Always set to 1
+        scs->static_config.cdef_level = 1;
+    }
     if (scs->static_config.intra_refresh_type == SVT_AV1_FWDKF_REFRESH && scs->static_config.hierarchical_levels != 4){
         scs->static_config.hierarchical_levels = 4;
         SVT_WARN("Fwd key frame is only supported for hierarchical levels 4 at this point. Hierarchical levels are set to 4\n");
@@ -4721,6 +4761,33 @@ static void copy_api_from_app(
 
     // QP scaling compression
     scs->static_config.qp_scale_compress_strength = config_struct->qp_scale_compress_strength;
+
+    // Extended CRF
+    scs->static_config.extended_crf_qindex_offset = config_struct->extended_crf_qindex_offset;
+
+    // Adaptive film grain
+    scs->static_config.adaptive_film_grain = config_struct->adaptive_film_grain;
+
+    // AC bias
+    scs->static_config.ac_bias = config_struct->ac_bias;
+
+    // Noise normalization strength
+    scs->static_config.noise_norm_strength = config_struct->noise_norm_strength;
+
+    // Sharp TX
+    scs->static_config.sharp_tx = config_struct->sharp_tx;
+
+    // TX bias
+    scs->static_config.tx_bias = config_struct->tx_bias;
+
+    // Complex HVS
+    scs->static_config.complex_hvs = config_struct->complex_hvs;
+
+    // Noise adaptive filtering
+    scs->static_config.noise_adaptive_filtering = config_struct->noise_adaptive_filtering;
+
+    // Alt CDEF
+    scs->static_config.alt_cdef = config_struct->alt_cdef;
 
     return;
 }

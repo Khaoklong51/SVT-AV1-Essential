@@ -35,6 +35,7 @@ extern "C" {
 #endif // __cplusplus
 
 #define FIX_TUNE_SSIM               1 // Fix SSIM mode
+#define FIX_PIC_MGR_HANG            1 // Fix a hang in the picture manager process related to pic processing order
 //FOR DEBUGGING - Do not remove
 #define OPT_LD_LATENCY2         1 // Latency optimization for low delay - to keep the Macro for backwards testing until 3.0
 #define LOG_ENC_DONE            0 // log encoder job one

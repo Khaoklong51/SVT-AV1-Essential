@@ -243,6 +243,12 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
                   MAX_QP_VALUE);
         return_error = EB_ErrorBadParameter;
     }
+
+    if ((config->qp == MAX_QP_VALUE && config->extended_crf_qindex_offset > 0)) {
+        SVT_ERROR("Instance %u: %s must be [0 - %d]\n", channel_number + 1, "CRF", 63);
+        return_error = EB_ErrorBadParameter;
+    }
+
     if (config->hierarchical_levels > 5) {
         SVT_ERROR("Instance %u: Hierarchical Levels supported [0-5]\n", channel_number + 1);
         return_error = EB_ErrorBadParameter;
@@ -907,6 +913,41 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
+    if (config->ac_bias > 8.0 || config->ac_bias < 0.0) {
+        SVT_ERROR("Instance %u: AC bias strength must be between 0.0 and 8.0\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->noise_norm_strength > 4) {
+        SVT_ERROR("Instance %u: Noise normalization strength must be between 0 and 4\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->sharp_tx > 1) {
+        SVT_ERROR("Instance %u: sharp-tx must be either 0 and 1\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->tx_bias > 3) {
+        SVT_ERROR("Instance %u: TX bias must be between 0 and 3\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->complex_hvs > 1) {
+        SVT_ERROR("Instance %u: complex-hvs must be between 0 and 1\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->noise_adaptive_filtering > 4) {
+        SVT_ERROR("Instance %u: noise-adaptive-filtering must be between 0 and 4\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->alt_cdef > 1) {
+        SVT_ERROR("Instance %u: enable-alt-cdef must be 0 or 1\n", channel_number + 1);
+        return_error = EB_ErrorBadParameter;
+    }
+
     return return_error;
 }
 
@@ -1068,6 +1109,15 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration *config_ptr) {
     config_ptr->speed                             = SPEED_UNKNOWN;
     config_ptr->quality                           = QUALITY_UNKNOWN;
     config_ptr->low_memory                        = false;
+    config_ptr->extended_crf_qindex_offset        = 0;
+    config_ptr->adaptive_film_grain               = true;
+    config_ptr->ac_bias                           = 0.0;
+    config_ptr->noise_norm_strength               = 0;
+    config_ptr->sharp_tx                          = 0;
+    config_ptr->tx_bias                           = 0;
+    config_ptr->complex_hvs                       = 0;
+    config_ptr->noise_adaptive_filtering          = 2;
+    config_ptr->alt_cdef                          = 0;
     return return_error;
 }
 
@@ -1084,6 +1134,101 @@ static const char *level_to_str(unsigned in) {
     static char ret[313];
     snprintf(ret, 313, "%.1f", in / 10.0);
     return ret;
+}
+
+static const char *color_primaries_to_str(EbColorPrimaries primaries) {
+    const struct {
+        const char      *name;
+        EbColorPrimaries primaries;
+    } color_primaries[] = {
+        {"bt709", EB_CICP_CP_BT_709},
+        {"bt470m", EB_CICP_CP_BT_470_M},
+        {"bt470bg", EB_CICP_CP_BT_470_B_G},
+        {"bt601", EB_CICP_CP_BT_601},
+        {"smpte240", EB_CICP_CP_SMPTE_240},
+        {"film", EB_CICP_CP_GENERIC_FILM},
+        {"bt2020", EB_CICP_CP_BT_2020},
+        {"xyz", EB_CICP_CP_XYZ},
+        {"smpte431", EB_CICP_CP_SMPTE_431},
+        {"smpte432", EB_CICP_CP_SMPTE_432},
+        {"ebu3213", EB_CICP_CP_EBU_3213},
+    };
+    const size_t color_primaries_size = sizeof(color_primaries) / sizeof(color_primaries[0]);
+
+    for (size_t i = 0; i < color_primaries_size; i++) {
+        if (primaries == color_primaries[i].primaries) {
+            return color_primaries[i].name;
+        }
+    }
+
+    return "unknown";
+}
+
+static const char *transfer_characteristics_to_str(EbTransferCharacteristics tfc) {
+    const struct {
+        const char               *name;
+        EbTransferCharacteristics tfc;
+    } transfer_characteristics[] = {
+        {"bt709", EB_CICP_TC_BT_709},
+        {"bt470m", EB_CICP_TC_BT_470_M},
+        {"bt470bg", EB_CICP_TC_BT_470_B_G},
+        {"bt601", EB_CICP_TC_BT_601},
+        {"smpte240", EB_CICP_TC_SMPTE_240},
+        {"linear", EB_CICP_TC_LINEAR},
+        {"log100", EB_CICP_TC_LOG_100},
+        {"log100-sqrt10", EB_CICP_TC_LOG_100_SQRT10},
+        {"iec61966", EB_CICP_TC_IEC_61966},
+        {"bt1361", EB_CICP_TC_BT_1361},
+        {"srgb", EB_CICP_TC_SRGB},
+        {"bt2020-10", EB_CICP_TC_BT_2020_10_BIT},
+        {"bt2020-12", EB_CICP_TC_BT_2020_12_BIT},
+        {"smpte2084", EB_CICP_TC_SMPTE_2084},
+        {"smpte428", EB_CICP_TC_SMPTE_428},
+        {"hlg", EB_CICP_TC_HLG},
+    };
+    const size_t transfer_characteristics_size = sizeof(transfer_characteristics) / sizeof(transfer_characteristics[0]);
+
+    for (size_t i = 0; i < transfer_characteristics_size; i++) {
+        if (tfc == transfer_characteristics[i].tfc) {
+            return transfer_characteristics[i].name;
+        }
+    }
+
+    return "unknown";
+}
+
+static const char *matrix_coefficients_to_str(EbMatrixCoefficients coeff) {
+    const struct {
+        const char          *name;
+        EbMatrixCoefficients coeff;
+    } matrix_coefficients[] = {
+        {"identity", EB_CICP_MC_IDENTITY},
+        {"bt709", EB_CICP_MC_BT_709},
+        {"fcc", EB_CICP_MC_FCC},
+        {"bt470bg", EB_CICP_MC_BT_470_B_G},
+        {"bt601", EB_CICP_MC_BT_601},
+        {"smpte240", EB_CICP_MC_SMPTE_240},
+        {"ycgco", EB_CICP_MC_SMPTE_YCGCO},
+        {"bt2020-ncl", EB_CICP_MC_BT_2020_NCL},
+        {"bt2020-cl", EB_CICP_MC_BT_2020_CL},
+        {"smpte2085", EB_CICP_MC_SMPTE_2085},
+        {"chroma-ncl", EB_CICP_MC_CHROMAT_NCL},
+        {"chroma-cl", EB_CICP_MC_CHROMAT_CL},
+        {"ictcp", EB_CICP_MC_ICTCP},
+    };
+    const size_t matrix_coefficients_size = sizeof(matrix_coefficients) / sizeof(matrix_coefficients[0]);
+
+    for (size_t i = 0; i < matrix_coefficients_size; i++) {
+        if (coeff == matrix_coefficients[i].coeff) {
+            return matrix_coefficients[i].name;
+        }
+    }
+
+    return "unknown";
+}
+
+static double get_extended_crf(EbSvtAv1EncConfiguration *config_ptr) {
+    return (double)config_ptr->qp + (double)config_ptr->extended_crf_qindex_offset / 4;
 }
 
 void svt_av1_print_lib_params(SequenceControlSet *scs) {
@@ -1108,14 +1253,21 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
             config->frame_rate_numerator,
             config->frame_rate_denominator);
         SVT_INFO(
-            "SVT [config]: bit-depth / color format \t\t\t\t: %d / "
-            "%s\n",
+            "SVT [config]: bit-depth / color format / hdr \t\t\t: %d / "
+            "%s / %d\n",
             config->encoder_bit_depth,
             config->encoder_color_format == EB_YUV400       ? "YUV400"
                 : config->encoder_color_format == EB_YUV420 ? "YUV420"
                 : config->encoder_color_format == EB_YUV422 ? "YUV422"
                 : config->encoder_color_format == EB_YUV444 ? "YUV444"
-                                                            : "Unknown color format");
+                                                            : "Unknown color format",
+            (config->content_light_level.max_cll != 0 || config->mastering_display.max_luma != 0)); // reintroduce enable-hdr param?
+
+        SVT_INFO(
+            "SVT [config]: color primaries / transfer characts / matrix coeffs \t: %s / %s / %s \n",
+            matrix_coefficients_to_str(config->matrix_coefficients),
+            color_primaries_to_str(config->color_primaries),
+            transfer_characteristics_to_str(config->transfer_characteristics));
 
         if (scs->static_config.speed != SPEED_UNKNOWN || (scs->static_config.speed == SPEED_UNKNOWN &&
             config->enc_mode == ENC_M5 &&
@@ -1207,16 +1359,16 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
                     if (config->max_bit_rate)
                         SVT_INFO(
                                 "SVT [config]: BRC mode / %s / max bitrate (kbps) \t\t: %s / %d / "
-                                "%d\n",
+                                "%.2f\n",
                                 scs->tpl || scs->static_config.enable_variance_boost ? "rate factor" : "CQP Assignment",
                                 scs->tpl || scs->static_config.enable_variance_boost ? "capped CRF" : "CQP",
-                                scs->static_config.qp,
+                                get_extended_crf(config),
                                 (int)config->max_bit_rate / 1000);
                     else
-                        SVT_INFO("SVT [config]: BRC mode / %s \t\t\t\t: %s / %d \n",
+                        SVT_INFO("SVT [config]: BRC mode / %s \t\t\t\t: %s / %.2f \n",
                                 scs->tpl || scs->static_config.enable_variance_boost ? "rate factor" : "CQP Assignment",
                                 scs->tpl || scs->static_config.enable_variance_boost ? "CRF" : "CQP",
-                                scs->static_config.qp);
+                                get_extended_crf(config));
                 }
                 break;
             case SVT_AV1_RC_MODE_VBR:
@@ -1246,10 +1398,20 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
         }
 
         if (config->film_grain_denoise_strength != 0) {
-            SVT_INFO("SVT [config]: film grain synth / denoising / level \t\t\t: %d / %d / %d\n",
-                     1,
-                     config->film_grain_denoise_apply,
-                     config->film_grain_denoise_strength);
+            if (config->adaptive_film_grain) {
+                SVT_INFO(
+                    "SVT [config]: film grain synth / denoising / level / adaptive \t: %d / %d / %d / True\n",
+                    1,
+                    config->film_grain_denoise_apply,
+                    config->film_grain_denoise_strength);
+            } else {
+                SVT_INFO(
+                    "SVT [config]: film grain synth / denoising / level / adaptive \t: %d / %d / %d / "
+                    "False\n",
+                    1,
+                    config->film_grain_denoise_apply,
+                    config->film_grain_denoise_strength);
+            }
         }
         SVT_INFO("SVT [config]: auto tiling / columns / rows \t\t\t\t: %d / %d / %d\n",
                  config->auto_tiling,
@@ -1267,6 +1429,22 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
 
         SVT_INFO("SVT [config]: QP scale compress strength \t\t\t\t: %d\n",
             config->qp_scale_compress_strength);
+
+        if (config->ac_bias || config->tx_bias) {
+            SVT_INFO("SVT [config]: AC Bias Strength / TX Bias \t\t\t\t: %.2f / %s\n",
+                     config->ac_bias,
+                     config->tx_bias == 1
+                         ? "full"
+                         : (config->tx_bias == 2 ? "size only" : (config->tx_bias == 3 ? "interp. only" : "off")));
+        }
+
+        if (config->noise_norm_strength > 0) {
+            SVT_INFO("SVT [config]: Noise Normalization Strength \t\t\t\t: %d\n", config->noise_norm_strength);
+        }
+
+        if (config->cdef_level != 0 && config->alt_cdef) {
+            SVT_INFO("SVT [config]: Alternative CDEF Bias \t\t\t\t\t: %d\n", config->alt_cdef);
+        }
     }
 #if DEBUG_BUFFERS
     SVT_INFO("SVT [config]: INPUT / OUTPUT \t\t\t\t\t\t: %d / %d\n",
@@ -1364,6 +1542,21 @@ static EbErrorType str_to_uint(const char *nptr, uint32_t *out, char **nextptr) 
     }
 
     val = strtoul(nptr, &endptr, 0);
+
+    if (endptr == nptr || (!nextptr && *endptr))
+        return EB_ErrorBadParameter;
+
+    *out = val;
+    if (nextptr)
+        *nextptr = endptr;
+    return EB_ErrorNone;
+}
+
+static EbErrorType str_to_double(const char *nptr, double *out, char **nextptr) {
+    char  *endptr;
+    double val;
+
+    val = strtod(nptr, &endptr);
 
     if (endptr == nptr || (!nextptr && *endptr))
         return EB_ErrorBadParameter;
@@ -1498,16 +1691,22 @@ static EbErrorType str_to_bool(const char *nptr, bool *out) {
 }
 
 static EbErrorType str_to_crf(const char *nptr, EbSvtAv1EncConfiguration *config_struct) {
-    uint32_t    crf;
+    double      crf;
     EbErrorType return_error;
 
-    return_error = str_to_uint(nptr, &crf, NULL);
+    return_error = str_to_double(nptr, &crf, NULL);
     if (return_error == EB_ErrorBadParameter)
         return return_error;
+    if (crf < 0)
+        return EB_ErrorBadParameter;
 
-    config_struct->qp                           = crf;
+    uint32_t qp                         = AOMMIN(MAX_QP_VALUE, (uint32_t)crf);
+    uint32_t extended_crf_qindex_offset = ((uint32_t)(crf * 4.0)) & 3;
+
+    config_struct->qp                           = qp;
     config_struct->rate_control_mode            = SVT_AV1_RC_MODE_CQP_OR_CRF;
     config_struct->enable_adaptive_quantization = 2;
+    config_struct->extended_crf_qindex_offset   = extended_crf_qindex_offset;
 
     return EB_ErrorNone;
 }
@@ -2037,12 +2236,17 @@ static EbErrorType parse_zones_string(const char* zones_str, QualityZone** zones
     
     while (zone_token && parsed_zones < zone_count) {
         unsigned long long start, end;
-        int quality;
+        double quality;
+        int base_q, qs_index;
 
-        if (sscanf(zone_token, "%llu,%llu,%d", &start, &end, &quality) != 3) {
+        if (sscanf(zone_token, "%llu,%llu,%lf", &start, &end, &quality) != 3) {
             free(zones);
             free(zones_copy);
             return EB_ErrorBadParameter;
+        } else {
+            quality = round(quality * 4.0) / 4.0;
+            base_q = (int)quality;
+            qs_index = ((int)round(quality * 4.0)) & 3;
         }
         
         // Validate zone parameters
@@ -2054,7 +2258,7 @@ static EbErrorType parse_zones_string(const char* zones_str, QualityZone** zones
         }
         
         if (quality < 1 || quality > 63) {
-            SVT_ERROR("Invalid QP value (%d) in zone, must be 1-63\n", quality);
+            SVT_ERROR("Invalid QP value (%lf) in zone, must be 1-63\n", quality);
             free(zones);
             free(zones_copy);
             return EB_ErrorBadParameter;
@@ -2062,7 +2266,8 @@ static EbErrorType parse_zones_string(const char* zones_str, QualityZone** zones
         
         zones[parsed_zones].start_frame = start;
         zones[parsed_zones].end_frame = end;
-        zones[parsed_zones].zone_quality = quality;
+        zones[parsed_zones].zone_baseq = base_q;
+        zones[parsed_zones].zone_qsidx = qs_index;
         parsed_zones++;
         
         zone_token = strtok(NULL, ";");
@@ -2188,17 +2393,17 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
             }
             for (int i = 0; i < config_struct->num_zones; i++) {
                 if (config_struct->enable_adaptive_quantization == 0 && config_struct->enable_variance_boost == 0) {
-                    SVT_INFO("  Zone %d: frames %llu-%llu, CQP %d\n", 
+                    SVT_INFO("  Zone %d: frames %llu-%llu, CQP %.2f\n",
                             i + 1,
                             config_struct->parsed_zones[i].start_frame,
                             config_struct->parsed_zones[i].end_frame,
-                            config_struct->parsed_zones[i].zone_quality);
+                            config_struct->parsed_zones[i].zone_baseq + config_struct->parsed_zones[i].zone_qsidx / 4.0);
                 } else {
-                    SVT_INFO("  Zone %d: frames %llu-%llu, CRF %d\n", 
+                    SVT_INFO("  Zone %d: frames %llu-%llu, CRF %.2f\n",
                             i + 1,
                             config_struct->parsed_zones[i].start_frame,
                             config_struct->parsed_zones[i].end_frame,
-                            config_struct->parsed_zones[i].zone_quality);
+                            config_struct->parsed_zones[i].zone_baseq + config_struct->parsed_zones[i].zone_qsidx / 4.0);
                 }  
             }
         }
@@ -2282,6 +2487,12 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         {"luminance-qp-bias", &config_struct->luminance_qp_bias},
         {"enable-tf", &config_struct->enable_tf},
         {"tf-strength", &config_struct->tf_strength},
+        {"noise-norm-strength", &config_struct->noise_norm_strength},
+        {"sharp-tx", &config_struct->sharp_tx},
+        {"tx-bias", &config_struct->tx_bias},
+        {"complex-hvs", &config_struct->complex_hvs},
+        {"noise-adaptive-filtering", &config_struct->noise_adaptive_filtering},
+        {"enable-alt-cdef", &config_struct->alt_cdef},
     };
     const size_t uint8_opts_size = sizeof(uint8_opts) / sizeof(uint8_opts[0]);
 
@@ -2313,6 +2524,21 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
     for (size_t i = 0; i < int64_opts_size; i++) {
         if (!strcmp(name, int64_opts[i].name)) {
             return str_to_int64(value, int64_opts[i].out, NULL);
+        }
+    }
+
+    // double fields
+    const struct {
+        const char *name;
+        double     *out;
+    } double_opts[] = {
+        {"ac-bias", &config_struct->ac_bias},
+    };
+    const size_t double_opts_size = sizeof(double_opts) / sizeof(double_opts[0]);
+
+    for (size_t i = 0; i < double_opts_size; i++) {
+        if (!strcmp(name, double_opts[i].name)) {
+            return str_to_double(value, double_opts[i].out, NULL);
         }
     }
 
@@ -2391,6 +2617,7 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         {"rtc", &config_struct->rtc},
         {"auto-tiling", &config_struct->auto_tiling},
         {"low-memory", &config_struct->low_memory},
+        {"adaptive-film-grain", &config_struct->adaptive_film_grain},
     };
     const size_t bool_opts_size = sizeof(bool_opts) / sizeof(bool_opts[0]);
 

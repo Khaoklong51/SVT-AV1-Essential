@@ -233,7 +233,8 @@ typedef struct SvtAv1FrameScaleEvts {
 typedef struct QualityZone {
     uint64_t start_frame;  // inclusive
     uint64_t end_frame;    // inclusive
-    int      zone_quality; // CRF/CQP value for this zone
+    int      zone_baseq;   // base CRF/CQP value for this zone
+    int      zone_qsidx;   // base CRF/CQP value for this zone
 } QualityZone;
 
 // Will contain the EbEncApi which will live in the EncHandle class
@@ -1033,10 +1034,92 @@ typedef struct EbSvtAv1EncConfiguration {
      * Default is false.
      */
     bool low_memory;
+
+    /* @brief qindex offset for extended CRF support
+     * Value is internally determined by CRF parameter value, each quarter-step increment to the CRF adds 1 to the
+     * offset, with a maximum of 3 (i.e. three quarter-step increments)
+     * Default is 0 if CRF is an integer
+     */
+    uint8_t extended_crf_qindex_offset;
+
+    /**
+     * @brief Toggle default film grain blocksize behavior
+     * 0: use default blocksize behavior (32x32)
+     * 1: use adaptive blocksize based on resolution
+     *  - 8x8 for <4k
+     *  - 16x16 for 4k
+     * Default is 1
+     */
+    bool adaptive_film_grain;
+
+    /**
+     * @brief Strength of the internal RD metric to bias toward high-frequency error (helps with texture preservation and film grain retention)
+     * 0.00: disable AC bias
+     * 1.00: enable AC bias with a strength of 1.00
+     * Default is 0.00.
+     */
+    double ac_bias;
+
+    /**
+     * @brief Noise normalization strength; modifies the encoder's willingness
+     * to boost AC coefficients in low-noise blocks.
+     * Min value is 0.
+     * Max value is 4.
+     * Default is 0.
+     */
+    uint8_t noise_norm_strength;
+
+    /**
+     * @brief Enable sharp-tx, a toggle that enables much sharper transforms decisions for higher fidelity ouput,
+     at the possible cost of increasing artifacting
+     * 0: disabled
+     * 1: enabled
+     * Default is 0
+     */
+    uint8_t sharp_tx;
+
+    /**
+     * @brief Transform size/type bias type
+     * 0: disabled
+     * 1: full
+     * 2: transform size only
+     * 3: interpolation filter tweaks only
+     * Default is 0
+     */
+    uint8_t tx_bias;
+
+    /**
+     * @brief Enable complex-hvs, a feature that enables the highest complexity and highest fidelity
+     HVS model at the cost of higher CPU time
+     * 0: default preset behavior
+     * 1: highest complexity HVS model (SSD-Psy)
+     * Default is 0
+     */
+    uint8_t complex_hvs;
+
+    /**
+     * @brief Controls noise detection for CDEF/restoration filtering
+     * 0: off
+     * 1: always-on noise-adaptive filters
+     * 2: default tune behavior
+     * 3: noise-adaptive CDEF only
+     * 4: noise-adaptive restoration filtering only
+     * Default is 2
+     */
+    uint8_t noise_adaptive_filtering;
+
+    /**
+     * @brief Enable alternative CDEF bias (experimental), which comes with new SAD & SATD based distortion calculation and various other improvements
+     * 0: disabled
+     * 1: enabled
+     * Default is 0
+     */
+    uint8_t alt_cdef;
+
     // clang-format off
     /*Add 128 Byte Padding to Struct to avoid changing the size of the public configuration struct*/
-    uint8_t padding[128 - (sizeof(uint8_t) * 3) - (sizeof(bool) * 3)
-        - sizeof(int32_t) - sizeof(char*) - sizeof(QualityZone*)
+    uint8_t padding[128 - (sizeof(uint8_t) * 10) - (sizeof(bool) * 4)
+        - sizeof(int32_t) - sizeof(char*) - sizeof(QualityZone*) - sizeof(double)
         - sizeof(uint16_t) - sizeof(SpeedPreset) - sizeof(QualityPreset)
     ];
     // clang-format on

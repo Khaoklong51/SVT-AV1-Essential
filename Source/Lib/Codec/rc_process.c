@@ -47,6 +47,19 @@ static const int    non_base_qindex_weight_wq[EB_MAX_TEMPORAL_LAYERS]    = {100,
 static const double tpl_hl_islice_div_factor[EB_MAX_TEMPORAL_LAYERS]     = {1, 2, 2, 1, 1, 0.7};
 static const double tpl_hl_base_frame_div_factor[EB_MAX_TEMPORAL_LAYERS] = {1, 3, 3, 2, 1, 1};
 #define KB 400
+
+static uint8_t NOINLINE clamp_qp(SequenceControlSet *scs, int qp) {
+    int qmin = scs->static_config.min_qp_allowed;
+    int qmax = scs->static_config.max_qp_allowed;
+    return (uint8_t)CLIP3(qmin, qmax, qp);
+}
+
+static uint8_t NOINLINE clamp_qindex(SequenceControlSet *scs, int qindex) {
+    int qmin = quantizer_to_qindex[scs->static_config.min_qp_allowed];
+    int qmax = quantizer_to_qindex[scs->static_config.max_qp_allowed];
+    return (uint8_t)CLIP3(qmin, qmax, qindex);
+}
+
 // intra_perc will be set to the % of intra area in two nearest ref frames
 static void get_ref_intra_percentage(PictureControlSet *pcs, uint8_t *intra_perc) {
     assert(intra_perc != NULL);
@@ -3465,18 +3478,17 @@ void reset_rc_param(PictureParentControlSet *ppcs) {
 }
 
 // Helper function to find the active zone for a given frame
-static int get_zone_quality_for_frame(const QualityZone *zones, int num_zones, uint64_t frame_number) {
-    if (!zones || num_zones == 0) {
-        return -1; // No zone active
-    }
+static void get_zone_quality_for_frame(const QualityZone *zones, int num_zones, uint64_t frame_number, int *base_qp, int *quarter_index) {
+    if (!zones || num_zones == 0) return; // No zone active
     
     for (int i = 0; i < num_zones; i++) {
         if (frame_number >= zones[i].start_frame && 
             frame_number <= zones[i].end_frame) {
-            return zones[i].zone_quality;
+            *base_qp = zones[i].zone_baseq;
+            *quarter_index = zones[i].zone_qsidx;
+            return;
         }
     }
-    return -1; // No zone active for this frame
 }
 
 void *svt_aom_rate_control_kernel(void *input_ptr) {
@@ -3591,65 +3603,65 @@ void *svt_aom_rate_control_kernel(void *input_ptr) {
                                          (int8_t)scs->static_config.max_qp_allowed,
                                          (int8_t)scs->static_config.qp + scs->static_config.startup_qp_offset)
                         : (uint8_t)scs->static_config.qp;
+                    const int scs_qindex = clamp_qindex(
+                        scs, quantizer_to_qindex[scs_qp] + scs->static_config.extended_crf_qindex_offset);
+
                     // if RC mode is 0,  fixed QP is used
                     // QP scaling based on POC number for Flat IPPP structure
                     // make sure no run to run is cause
                     if (pcs->ppcs->seq_param_changed)
-                        rc->active_worst_quality = quantizer_to_qindex[scs_qp];
+                        rc->active_worst_quality = scs_qindex;
                     frm_hdr->quantization_params.base_q_idx = quantizer_to_qindex[pcs->picture_qp];
                     int32_t zone_qindex = -1;
-                    int zone_quality = -1;
+                    int zone_baseq = -1;
+                    int zone_qsidx = -1;
                     if (pcs->ppcs->qp_on_the_fly == true) {
-                        pcs->picture_qp = (uint8_t)CLIP3((int32_t)scs->static_config.min_qp_allowed,
-                                                         (int32_t)scs->static_config.max_qp_allowed,
-                                                         pcs->ppcs->picture_qp);
-                        frm_hdr->quantization_params.base_q_idx = quantizer_to_qindex[pcs->picture_qp];
+                        pcs->picture_qp = clamp_qp(scs, pcs->ppcs->picture_qp);
+                        frm_hdr->quantization_params.base_q_idx = scs_qindex;
 
                     } else {
                         if (scs->enable_qp_scaling_flag) {
-                            const int32_t qindex = quantizer_to_qindex[scs_qp];
                             int32_t new_qindex;
 
                             if (scs->static_config.zones) {
-                                zone_quality = get_zone_quality_for_frame(
+                                get_zone_quality_for_frame(
                                     scs->static_config.parsed_zones,
                                     scs->static_config.num_zones,
-                                    pcs->picture_number);
+                                    pcs->picture_number,
+                                    &zone_baseq,
+                                    &zone_qsidx);
 
-                                if (zone_quality >= 0) {
-                                    int32_t effective_quality = (uint8_t)CLIP3(
-                                        (int32_t)scs->static_config.min_qp_allowed,
-                                        (int32_t)scs->static_config.max_qp_allowed,
-                                        zone_quality);
-                                    zone_qindex = quantizer_to_qindex[effective_quality];
-                                }
+                                if (zone_baseq >= 0) {
+                                    int32_t effective_quality = clamp_qp(scs, zone_baseq);
+                                    zone_qindex = clamp_qindex(
+                                        scs, quantizer_to_qindex[effective_quality] + zone_qsidx);
+                                } // + scs->static_config.extended_crf_qindex_offset
                             }
 
                             if (pcs->ppcs->tpl_ctrls.enable) {
                                 if (pcs->picture_number == 0) {
-                                    rc->active_worst_quality = quantizer_to_qindex[scs_qp];
+                                    rc->active_worst_quality = scs_qindex;
                                     av1_rc_init(scs);
                                 }
 
-                                rc->active_worst_quality = (zone_qindex >= 0) ? zone_qindex : quantizer_to_qindex[scs_qp];
+                                rc->active_worst_quality = (zone_qindex >= 0) ? zone_qindex : scs_qindex;
 
                                 new_qindex = crf_qindex_calc(pcs, rc, rc->active_worst_quality);
 
                             } else {  // CQP
                                 new_qindex = cqp_qindex_calc(
                                     pcs,
-                                    (zone_qindex >= 0) ? zone_qindex : qindex);
+                                    (zone_qindex >= 0) ? zone_qindex : scs_qindex);
                             }
 
-                            frm_hdr->quantization_params.base_q_idx = (uint8_t)CLIP3(
-                                (int32_t)quantizer_to_qindex[scs->static_config.min_qp_allowed],
-                                (int32_t)quantizer_to_qindex[scs->static_config.max_qp_allowed],
-                                (int32_t)(new_qindex));
+                            frm_hdr->quantization_params.base_q_idx = clamp_qindex(scs, new_qindex);
+                        } else {
+                            frm_hdr->quantization_params.base_q_idx = clamp_qindex(scs, scs_qindex);
                         }
 
                         if (scs->static_config.use_fixed_qindex_offsets) {
                             int32_t qindex = scs->static_config.use_fixed_qindex_offsets == 1
-                                ? quantizer_to_qindex[scs_qp]
+                                ? scs_qindex
                                 : frm_hdr->quantization_params
                                       .base_q_idx; // do not shut the auto QPS if use_fixed_qindex_offsets 2
 
@@ -3658,9 +3670,7 @@ void *svt_aom_rate_control_kernel(void *input_ptr) {
                             else
                                 qindex += scs->static_config.key_frame_qindex_offset;
 
-                            qindex = CLIP3(quantizer_to_qindex[scs->static_config.min_qp_allowed],
-                                           quantizer_to_qindex[scs->static_config.max_qp_allowed],
-                                           qindex);
+                            qindex = clamp_qindex(scs, qindex);
 
                             frm_hdr->quantization_params.base_q_idx = qindex;
                         }
@@ -3687,7 +3697,8 @@ void *svt_aom_rate_control_kernel(void *input_ptr) {
                                                          (int32_t)scs->static_config.max_qp_allowed,
                                                          (frm_hdr->quantization_params.base_q_idx + 2) >> 2);
                     }
-                    int32_t chroma_qindex = frm_hdr->quantization_params.base_q_idx;
+                    int32_t chroma_qindex = frm_hdr->quantization_params.base_q_idx +
+                        scs->static_config.extended_crf_qindex_offset;
                     if (frame_is_intra_only(pcs->ppcs)) {
                         chroma_qindex += scs->static_config.key_frame_chroma_qindex_offset;
                     } else {

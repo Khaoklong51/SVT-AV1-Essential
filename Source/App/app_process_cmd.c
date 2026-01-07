@@ -35,7 +35,7 @@
 #include "app_output_ivf.h"
 
 #if HAVE_FFMS2
-#include "third_party/ffms2/include/ffms.h"
+#include "ffms.h"
 #endif
 
 /***************************************

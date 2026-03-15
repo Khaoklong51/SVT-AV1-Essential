@@ -691,6 +691,7 @@ if(USE_FFMS2)
                 # need this for static build
                 target_compile_definitions(SvtAv1EncApp PRIVATE FFMS_STATIC)
                 set(FFMS2_REQUIRED_LIBRARIES ${PC_FFMS2_STATIC_LIBRARIES})
+                set(FFMS2_LIBRARY_DIR ${PC_FFMS2_STATIC_LIBRARY_DIRS})
                 
                 foreach(BASE ${FFMS2_REQUIRED_LIBRARIES})
                     list(APPEND FFMS2_LIBRARY "${BASE}${SUFFIX}")

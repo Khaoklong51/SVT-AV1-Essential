@@ -659,6 +659,13 @@ else()
   set(SUFFIX ${CMAKE_SHARED_LIBRARY_SUFFIX})
 endif()
 
+if(WIN32 AND NOT MINGW)
+    # disable pkg-config requirement on native windows
+    option(USE_PKG_CONFIG "Use pkg-config to find library" OFF)
+else()
+    option(USE_PKG_CONFIG "Use pkg-config to find library" ON)
+endif()
+
 option(USE_FFMS2 "Enable FFMS2 support (Install FFMS2 first)" OFF)
 if(USE_FFMS2)
     # link static ffms2 which is c++ libraies 
@@ -666,7 +673,7 @@ if(USE_FFMS2)
     # it does not affect anything but final linker language invoke
     set_target_properties(SvtAv1EncApp PROPERTIES LINKER_LANGUAGE CXX)
     find_package(PkgConfig)
-    if(PkgConfig_FOUND)
+    if(PkgConfig_FOUND AND USE_PKG_CONFIG)
         pkg_check_modules(PC_FFMS2 ffms2 QUIET)
 
         if(NOT PC_FFMS2_FOUND)
@@ -676,7 +683,7 @@ if(USE_FFMS2)
             set(FFMS2_LIBRARY_DIR ${PC_FFMS2_LIBRARY_DIRS})
             set(FFMS2_INCLUDE_DIR ${PC_FFMS2_INCLUDE_DIRS})
 
-            if (WIN32 AND NOT MINGW)
+            if(WIN32 AND NOT MINGW)
                 message(WARNING "FFMS2 static and shared building is not guaranteed here.")
             endif()
 
